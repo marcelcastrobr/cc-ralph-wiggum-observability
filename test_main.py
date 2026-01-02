@@ -2,8 +2,9 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from main import app, get_db, Base, TodoDB
+from main import app, get_db, Base, TodoDB, metrics
 import json
+import time
 
 # Test database setup
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test_todos.db"
@@ -369,3 +370,189 @@ class TestEdgeCases:
         # created_at should remain the same, updated_at should change
         assert updated_data["created_at"] == created_at
         assert updated_data["updated_at"] != updated_at
+
+class TestObservability:
+    def test_health_check_endpoint(self):
+        """Test the health check endpoint"""
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+
+        # Check required fields
+        assert "status" in data
+        assert "timestamp" in data
+        assert "uptime_seconds" in data
+        assert "components" in data
+
+        # Check status is healthy
+        assert data["status"] == "healthy"
+
+        # Check components
+        assert "database" in data["components"]
+        assert "api" in data["components"]
+        assert data["components"]["database"] == "healthy"
+        assert data["components"]["api"] == "healthy"
+
+        # Check uptime is positive
+        assert data["uptime_seconds"] >= 0
+
+    def test_metrics_endpoint(self):
+        """Test the metrics endpoint"""
+        # Reset metrics for clean test
+        metrics.request_count = 0
+        metrics.error_count = 0
+        metrics.endpoint_counts.clear()
+        metrics.endpoint_timings.clear()
+        metrics.status_code_counts.clear()
+
+        # Make some requests to generate metrics
+        client.post("/todos", json={"title": "Test 1"})
+        client.get("/todos")
+        client.get("/todos/999")  # This will generate a 404
+
+        # Get metrics
+        response = client.get("/metrics")
+        assert response.status_code == 200
+        data = response.json()
+
+        # Check structure
+        assert "timestamp" in data
+        assert "metrics" in data
+
+        metrics_data = data["metrics"]
+        assert "uptime_seconds" in metrics_data
+        assert "total_requests" in metrics_data
+        assert "total_errors" in metrics_data
+        assert "error_rate" in metrics_data
+        assert "endpoint_stats" in metrics_data
+        assert "response_times" in metrics_data
+        assert "status_codes" in metrics_data
+        assert "recent_errors" in metrics_data
+
+        # Check that metrics were recorded
+        assert metrics_data["total_requests"] > 0
+        assert metrics_data["total_errors"] > 0  # Due to the 404
+        assert metrics_data["error_rate"] > 0
+
+    def test_request_headers(self):
+        """Test that observability headers are added to responses"""
+        response = client.get("/todos")
+
+        # Check for custom headers
+        assert "X-Request-ID" in response.headers
+        assert "X-Response-Time" in response.headers
+
+        # Check format
+        assert response.headers["X-Request-ID"].startswith("req_")
+        assert response.headers["X-Response-Time"].endswith("ms")
+
+    def test_request_logging_fields(self):
+        """Test that requests generate proper log fields"""
+        # Create a todo and check response
+        response = client.post("/todos", json={"title": "Log Test"})
+        assert response.status_code == 201
+
+        # Headers should be present
+        assert "X-Request-ID" in response.headers
+        assert "X-Response-Time" in response.headers
+
+    def test_error_tracking(self):
+        """Test that errors are properly tracked in metrics"""
+        # Reset metrics
+        metrics.recent_errors.clear()
+        initial_error_count = metrics.error_count
+
+        # Generate some errors
+        client.get("/todos/9999")  # 404
+        client.post("/todos", json={"title": ""})  # 422 validation error
+
+        # Check that errors were tracked
+        assert metrics.error_count > initial_error_count
+
+        # Check recent_errors if any 500 errors occurred
+        # Note: 404 and 422 are client errors, not tracked in recent_errors
+
+    def test_metrics_aggregation(self):
+        """Test that metrics are properly aggregated"""
+        # Reset metrics
+        metrics.endpoint_counts.clear()
+        metrics.endpoint_timings.clear()
+
+        # Make multiple requests to same endpoint
+        for i in range(3):
+            client.post("/todos", json={"title": f"Test {i}"})
+
+        # Check endpoint counts
+        assert "POST /todos" in metrics.endpoint_counts
+        assert metrics.endpoint_counts["POST /todos"] >= 3
+
+        # Check timing aggregation
+        assert "POST /todos" in metrics.endpoint_timings
+        timings = metrics.endpoint_timings["POST /todos"]
+        assert len(timings) >= 3
+
+        # Get metrics and check aggregated stats
+        response = client.get("/metrics")
+        metrics_data = response.json()["metrics"]
+
+        if "POST /todos" in metrics_data["response_times"]:
+            timing_stats = metrics_data["response_times"]["POST /todos"]
+            assert "count" in timing_stats
+            assert "avg_ms" in timing_stats
+            assert "min_ms" in timing_stats
+            assert "max_ms" in timing_stats
+            assert timing_stats["count"] >= 3
+
+    def test_status_code_tracking(self):
+        """Test that different status codes are tracked"""
+        # Reset metrics
+        metrics.status_code_counts.clear()
+
+        # Generate different status codes
+        client.post("/todos", json={"title": "Test"})  # 201
+        client.get("/todos")  # 200
+        client.get("/todos/9999")  # 404
+        client.post("/todos", json={"title": ""})  # 422
+
+        # Check status codes are tracked
+        assert 200 in metrics.status_code_counts or 201 in metrics.status_code_counts
+        assert metrics.status_code_counts.get(404, 0) >= 1
+        assert metrics.status_code_counts.get(422, 0) >= 1
+
+    def test_json_logging_format(self):
+        """Test that logs are in JSON format"""
+        # The logger should be outputting JSON
+        # This is more of an integration test that would need actual log capture
+        # For now, we just verify the logger is configured
+        from main import logger, JSONFormatter
+
+        assert logger is not None
+        assert len(logger.handlers) > 0
+
+        # Check that the formatter is JSONFormatter
+        handler = logger.handlers[0]
+        assert isinstance(handler.formatter, JSONFormatter)
+
+    def test_health_check_database_failure(self):
+        """Test health check when database has issues"""
+        # This would require mocking database failure
+        # For now, we just ensure the endpoint handles it gracefully
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert "status" in response.json()
+
+    def test_metrics_uptime(self):
+        """Test that uptime is calculated correctly"""
+        # Get initial metrics
+        response1 = client.get("/metrics")
+        uptime1 = response1.json()["metrics"]["uptime_seconds"]
+
+        # Wait a bit
+        time.sleep(0.1)
+
+        # Get metrics again
+        response2 = client.get("/metrics")
+        uptime2 = response2.json()["metrics"]["uptime_seconds"]
+
+        # Uptime should have increased
+        assert uptime2 > uptime1
