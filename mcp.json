@@ -1,0 +1,147 @@
+{
+  "name": "todo-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP Server for Todo REST API - provides CRUD operations for managing todos",
+  "author": "Todo API Team",
+  "license": "MIT",
+  "server": {
+    "command": "python",
+    "args": ["mcp_server.py"],
+    "env": {
+      "PYTHONUNBUFFERED": "1"
+    }
+  },
+  "tools": [
+    {
+      "name": "create_todo",
+      "description": "Create a new todo item",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "description": "Title of the todo (1-200 chars)"
+        },
+        "description": {
+          "type": "string",
+          "required": false,
+          "description": "Description of the todo (max 1000 chars)"
+        },
+        "completed": {
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Whether the todo is completed"
+        },
+        "favorite": {
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Whether the todo is favorited"
+        }
+      }
+    },
+    {
+      "name": "list_todos",
+      "description": "List todos with optional filtering",
+      "parameters": {
+        "completed": {
+          "type": "boolean",
+          "required": false,
+          "description": "Filter by completion status"
+        },
+        "skip": {
+          "type": "integer",
+          "required": false,
+          "default": 0,
+          "description": "Number of items to skip for pagination"
+        },
+        "limit": {
+          "type": "integer",
+          "required": false,
+          "default": 100,
+          "description": "Maximum number of items to return"
+        }
+      }
+    },
+    {
+      "name": "get_todo",
+      "description": "Get a specific todo by ID",
+      "parameters": {
+        "todo_id": {
+          "type": "integer",
+          "required": true,
+          "description": "The ID of the todo to retrieve"
+        }
+      }
+    },
+    {
+      "name": "update_todo",
+      "description": "Update a todo item (partial update supported)",
+      "parameters": {
+        "todo_id": {
+          "type": "integer",
+          "required": true,
+          "description": "The ID of the todo to update"
+        },
+        "title": {
+          "type": "string",
+          "required": false,
+          "description": "New title (1-200 chars)"
+        },
+        "description": {
+          "type": "string",
+          "required": false,
+          "description": "New description (max 1000 chars)"
+        },
+        "completed": {
+          "type": "boolean",
+          "required": false,
+          "description": "New completion status"
+        },
+        "favorite": {
+          "type": "boolean",
+          "required": false,
+          "description": "New favorite status"
+        }
+      }
+    },
+    {
+      "name": "delete_todo",
+      "description": "Delete a todo item",
+      "parameters": {
+        "todo_id": {
+          "type": "integer",
+          "required": true,
+          "description": "The ID of the todo to delete"
+        }
+      }
+    },
+    {
+      "name": "mark_todo_complete",
+      "description": "Mark a todo as completed (convenience method)",
+      "parameters": {
+        "todo_id": {
+          "type": "integer",
+          "required": true,
+          "description": "The ID of the todo to mark as complete"
+        }
+      }
+    },
+    {
+      "name": "mark_todo_incomplete",
+      "description": "Mark a todo as incomplete (convenience method)",
+      "parameters": {
+        "todo_id": {
+          "type": "integer",
+          "required": true,
+          "description": "The ID of the todo to mark as incomplete"
+        }
+      }
+    }
+  ],
+  "requirements": [
+    "httpx>=0.24.0",
+    "mcp>=1.0.0",
+    "fastapi>=0.100.0"
+  ]
+}

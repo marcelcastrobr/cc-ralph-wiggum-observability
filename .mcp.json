@@ -1,0 +1,14 @@
+{
+  "servers": {
+    "todo-api": {
+      "command": "python",
+      "args": [
+        "mcp_server.py"
+      ],
+      "cwd": "/Users/mcastro/Documents/claudecode/cc-ralph-wiggum-observability",
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}
