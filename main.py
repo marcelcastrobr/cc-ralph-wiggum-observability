@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi_mcp import FastApiMCP
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -299,9 +300,9 @@ def get_metrics():
 
 # CRUD Operations
 
-@app.post("/todos", response_model=TodoResponse, status_code=201)
+@app.post("/todos", response_model=TodoResponse, status_code=201, operation_id="create_todo")
 def create_todo(todo: TodoCreate, db: Session = Depends(get_db)):
-    """Create a new todo item with validation"""
+    """Create a new todo item with title, optional description, completed status, and favorite flag"""
     logger.info("Creating todo", extra={'extra_fields': {
         'action': 'create_todo',
         'title': todo.title,
@@ -326,14 +327,14 @@ def create_todo(todo: TodoCreate, db: Session = Depends(get_db)):
 
     return db_todo
 
-@app.get("/todos", response_model=List[TodoResponse])
+@app.get("/todos", response_model=List[TodoResponse], operation_id="list_todos")
 def get_all_todos(
     skip: int = 0,
     limit: int = 100,
     completed: Optional[bool] = None,
     db: Session = Depends(get_db)
 ):
-    """Get all todos with optional filtering and pagination"""
+    """List all todos with optional filtering by completed status and pagination (skip, limit)"""
     logger.info("Fetching todos", extra={'extra_fields': {
         'action': 'get_todos',
         'skip': skip,
@@ -353,9 +354,9 @@ def get_all_todos(
 
     return todos
 
-@app.get("/todos/{todo_id}", response_model=TodoResponse)
+@app.get("/todos/{todo_id}", response_model=TodoResponse, operation_id="get_todo")
 def get_todo(todo_id: int, db: Session = Depends(get_db)):
-    """Get a specific todo by ID"""
+    """Get a specific todo item by its ID"""
     logger.info("Fetching todo", extra={'extra_fields': {
         'action': 'get_todo',
         'todo_id': todo_id
@@ -371,9 +372,9 @@ def get_todo(todo_id: int, db: Session = Depends(get_db)):
 
     return todo
 
-@app.put("/todos/{todo_id}", response_model=TodoResponse)
+@app.put("/todos/{todo_id}", response_model=TodoResponse, operation_id="update_todo")
 def update_todo(todo_id: int, todo_update: TodoUpdate, db: Session = Depends(get_db)):
-    """Update a todo item with validation"""
+    """Update an existing todo item - can update title, description, completed status, or favorite flag"""
     logger.info("Updating todo", extra={'extra_fields': {
         'action': 'update_todo',
         'todo_id': todo_id,
@@ -409,9 +410,9 @@ def update_todo(todo_id: int, todo_update: TodoUpdate, db: Session = Depends(get
 
     return todo
 
-@app.delete("/todos/{todo_id}", status_code=204)
+@app.delete("/todos/{todo_id}", status_code=204, operation_id="delete_todo")
 def delete_todo(todo_id: int, db: Session = Depends(get_db)):
-    """Delete a todo item"""
+    """Delete a todo item by its ID"""
     logger.info("Deleting todo", extra={'extra_fields': {
         'action': 'delete_todo',
         'todo_id': todo_id
@@ -435,7 +436,7 @@ def delete_todo(todo_id: int, db: Session = Depends(get_db)):
 
     return None
 
-@app.get("/")
+@app.get("/", operation_id="api_info")
 def root():
     """Root endpoint with API information"""
     return {
@@ -449,12 +450,27 @@ def root():
             "DELETE /todos/{id}": "Delete a todo",
             "GET /health": "Health check endpoint",
             "GET /metrics": "API metrics and statistics"
-        }
+        },
+        "mcp_server": "/mcp (MCP server for AI agents)"
     }
+
+# Initialize MCP server
+# This exposes the FastAPI endpoints as MCP tools for AI agents
+mcp = FastApiMCP(
+    app,
+    name="Todo MCP Server",
+    description="MCP server for managing todos - provides tools to create, read, update, and delete todo items",
+    # Only include the CRUD operations as MCP tools, not health/metrics/root
+    include_operations=["create_todo", "list_todos", "get_todo", "update_todo", "delete_todo"]
+)
+
+# Mount the MCP server at /mcp using HTTP transport (recommended)
+mcp.mount_http()
 
 if __name__ == "__main__":
     logger.info("Starting Todo API server", extra={'extra_fields': {
         'action': 'server_start',
         'port': 8000
     }})
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    # Use string import to allow reload to work properly with MCP routes
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
